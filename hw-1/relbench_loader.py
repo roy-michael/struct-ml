@@ -5,73 +5,223 @@ import yaml
 from relbench.base import Table, Database
 
 
-def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
-    """Load the OULAD dataset from raw CSV files into an in-memory RelBench Database object.
+PRESENTATION_STARTS = {
+    "2013B": "2013-02-01",
+    "2013J": "2013-10-01",
+    "2014B": "2014-02-01",
+    "2014J": "2014-10-01",
+}
 
-    Handles combining composite keys into single surrogate columns as required by RelBench.
-    """
+
+def _offset_to_datetime(presentations: pd.Series, offsets: pd.Series) -> pd.Series:
+    base_dates = pd.to_datetime(presentations.map(PRESENTATION_STARTS))
+    valid = offsets.notna()
+    result = pd.Series(pd.NaT, index=offsets.index, dtype="datetime64[ns]")
+    result.loc[valid] = base_dates.loc[valid] + pd.to_timedelta(
+        offsets.loc[valid].astype(int), unit="D"
+    )
+    return result
+
+
+def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
+    """Load the OULAD dataset from raw CSV files into a normalized RelBench Database."""
+    import numpy as np
+
     if raw_dir is None:
-        raw_path = Path(__file__).resolve().parent.parent / "oulad"
+        raw_path = Path(__file__).resolve().parent.parent / "datasets" / "OULAD"
     else:
         raw_path = Path(raw_dir)
     print(f"Loading CSV files from {raw_path.resolve()}...")
 
-    # 1. Load CSVs
-    courses_df = pd.read_csv(raw_path / "courses.csv")
-    assessments_df = pd.read_csv(raw_path / "assessments.csv")
-    vle_df = pd.read_csv(raw_path / "vle.csv")
-    student_info_df = pd.read_csv(raw_path / "studentInfo.csv")
-    student_reg_df = pd.read_csv(raw_path / "studentRegistration.csv")
-    student_assess_df = pd.read_csv(raw_path / "studentAssessment.csv")
+    # 1. Courses (PK: course_id)
+    raw_courses = pd.read_csv(raw_path / "courses.csv")
+    raw_courses["_raw_course_id"] = (
+        raw_courses["code_module"] + "_" + raw_courses["code_presentation"]
+    )
+    raw_courses = raw_courses.sort_values("_raw_course_id").reset_index(drop=True)
+    raw_courses["course_id"] = np.arange(len(raw_courses), dtype=np.int64)
+    course_to_pkey = dict(zip(raw_courses["_raw_course_id"], raw_courses["course_id"]))
+    courses_df = raw_courses[
+        ["course_id", "code_module", "code_presentation", "module_presentation_length"]
+    ].copy()
 
-    # Optional / large file: load studentVle if present
+    # 2. Assessments (PK: id_assessment, FK: course_id -> courses)
+    raw_assessments = pd.read_csv(raw_path / "assessments.csv")
+    raw_assessments["_raw_course_id"] = (
+        raw_assessments["code_module"] + "_" + raw_assessments["code_presentation"]
+    )
+    raw_assessments = raw_assessments.sort_values("id_assessment").reset_index(drop=True)
+    raw_assessments["_raw_assessment_id"] = raw_assessments["id_assessment"]
+    raw_assessments["id_assessment"] = np.arange(len(raw_assessments), dtype=np.int64)
+    raw_assessments["course_id"] = (
+        raw_assessments["_raw_course_id"].map(course_to_pkey).astype(np.int64)
+    )
+    raw_assessments["date"] = _offset_to_datetime(
+        raw_assessments["code_presentation"], raw_assessments["date"]
+    )
+    assess_raw_to_pkey = dict(
+        zip(raw_assessments["_raw_assessment_id"], raw_assessments["id_assessment"])
+    )
+    assess_to_pres = dict(
+        zip(raw_assessments["_raw_assessment_id"], raw_assessments["code_presentation"])
+    )
+    assess_to_raw_course = dict(
+        zip(raw_assessments["_raw_assessment_id"], raw_assessments["_raw_course_id"])
+    )
+    assessments_df = raw_assessments[
+        ["id_assessment", "course_id", "assessment_type", "date", "weight"]
+    ].copy()
+
+    # 3. VLE (PK: id_site, FK: course_id -> courses)
+    raw_vle = pd.read_csv(raw_path / "vle.csv")
+    raw_vle["_raw_course_id"] = (
+        raw_vle["code_module"] + "_" + raw_vle["code_presentation"]
+    )
+    raw_vle = raw_vle.sort_values("id_site").reset_index(drop=True)
+    raw_vle["_raw_site_id"] = raw_vle["id_site"]
+    raw_vle["id_site"] = np.arange(len(raw_vle), dtype=np.int64)
+    raw_vle["course_id"] = raw_vle["_raw_course_id"].map(course_to_pkey).astype(np.int64)
+    site_raw_to_pkey = dict(zip(raw_vle["_raw_site_id"], raw_vle["id_site"]))
+    vle_df = raw_vle[
+        ["id_site", "course_id", "activity_type", "week_from", "week_to"]
+    ].copy()
+
+    # 4. StudentInfo (28,785 unique students, PK: id_student)
+    raw_student_info = pd.read_csv(raw_path / "studentInfo.csv")
+    student_info_df = (
+        raw_student_info[
+            [
+                "id_student",
+                "gender",
+                "region",
+                "highest_education",
+                "imd_band",
+                "disability",
+            ]
+        ]
+        .drop_duplicates()
+        .sort_values("id_student")
+        .reset_index(drop=True)
+    )
+    student_info_df["_raw_id_student"] = student_info_df["id_student"]
+    student_info_df["id_student"] = np.arange(len(student_info_df), dtype=np.int64)
+    student_to_pkey = dict(
+        zip(student_info_df["_raw_id_student"], student_info_df["id_student"])
+    )
+    student_info_df = student_info_df[
+        ["id_student", "gender", "region", "highest_education", "imd_band", "disability"]
+    ].copy()
+
+    # 5. StudentRegistration (32,593 enrollments, PK: student_reg_id)
+    raw_student_reg = pd.read_csv(raw_path / "studentRegistration.csv")
+    join_cols = ["code_module", "code_presentation", "id_student"]
+    raw_student_reg = raw_student_reg.merge(
+        raw_student_info[
+            join_cols
+            + ["age_band", "num_of_prev_attempts", "studied_credits", "final_result"]
+        ],
+        on=join_cols,
+        how="inner",
+    )
+    raw_student_reg["_raw_course_id"] = (
+        raw_student_reg["code_module"] + "_" + raw_student_reg["code_presentation"]
+    )
+    raw_student_reg["_raw_student_reg_id"] = (
+        raw_student_reg["_raw_course_id"]
+        + "_"
+        + raw_student_reg["id_student"].astype(str)
+    )
+    raw_student_reg = raw_student_reg.sort_values("_raw_student_reg_id").reset_index(
+        drop=True
+    )
+    raw_student_reg["student_reg_id"] = np.arange(len(raw_student_reg), dtype=np.int64)
+    raw_student_reg["id_student"] = (
+        raw_student_reg["id_student"].map(student_to_pkey).astype(np.int64)
+    )
+    raw_student_reg["course_id"] = (
+        raw_student_reg["_raw_course_id"].map(course_to_pkey).astype(np.int64)
+    )
+    raw_student_reg["date_registration"] = _offset_to_datetime(
+        raw_student_reg["code_presentation"], raw_student_reg["date_registration"]
+    )
+    raw_student_reg["date_unregistration"] = _offset_to_datetime(
+        raw_student_reg["code_presentation"], raw_student_reg["date_unregistration"]
+    )
+    student_reg_to_pkey = dict(
+        zip(raw_student_reg["_raw_student_reg_id"], raw_student_reg["student_reg_id"])
+    )
+    student_reg_df = raw_student_reg[
+        [
+            "student_reg_id",
+            "id_student",
+            "course_id",
+            "age_band",
+            "num_of_prev_attempts",
+            "studied_credits",
+            "date_registration",
+            "date_unregistration",
+            "final_result",
+        ]
+    ].copy()
+
+    # 6. StudentAssessment
+    raw_student_assess = pd.read_csv(raw_path / "studentAssessment.csv")
+    raw_sa_course = raw_student_assess["id_assessment"].map(assess_to_raw_course)
+    raw_sa_sreg = raw_sa_course + "_" + raw_student_assess["id_student"].astype(str)
+    sa_pres = raw_student_assess["id_assessment"].map(assess_to_pres)
+    raw_student_assess["student_reg_id"] = (
+        raw_sa_sreg.map(student_reg_to_pkey).astype(np.int64)
+    )
+    raw_student_assess["id_assessment"] = (
+        raw_student_assess["id_assessment"].map(assess_raw_to_pkey).astype(np.int64)
+    )
+    raw_student_assess["date_submitted"] = _offset_to_datetime(
+        sa_pres, raw_student_assess["date_submitted"]
+    )
+    raw_student_assess = raw_student_assess.sort_values("date_submitted").reset_index(
+        drop=True
+    )
+    raw_student_assess["student_assessment_id"] = np.arange(
+        len(raw_student_assess), dtype=np.int64
+    )
+    student_assess_df = raw_student_assess[
+        [
+            "student_assessment_id",
+            "id_assessment",
+            "student_reg_id",
+            "date_submitted",
+            "is_banked",
+            "score",
+        ]
+    ].copy()
+
+    # 7. StudentVle (optional)
     student_vle_path = raw_path / "studentVle.csv"
-    has_student_vle = student_vle_path.exists()
     student_vle_df = None
-    if has_student_vle:
+    if student_vle_path.exists():
         print("Loading studentVle.csv (this may take a few seconds)...")
-        student_vle_df = pd.read_csv(student_vle_path)
-
-    # 2. RelBench requires single-column primary and foreign keys.
-    # We construct unified key columns for composite relationships:
-    # course_id: code_module + '_' + code_presentation
-    # student_reg_id: code_module + '_' + code_presentation + '_' + id_student
-
-    courses_df["course_id"] = (
-        courses_df["code_module"] + "_" + courses_df["code_presentation"]
-    )
-
-    assessments_df["course_id"] = (
-        assessments_df["code_module"] + "_" + assessments_df["code_presentation"]
-    )
-
-    vle_df["course_id"] = (
-        vle_df["code_module"] + "_" + vle_df["code_presentation"]
-    )
-
-    student_info_df["course_id"] = (
-        student_info_df["code_module"] + "_" + student_info_df["code_presentation"]
-    )
-    student_info_df["student_reg_id"] = (
-        student_info_df["course_id"] + "_" + student_info_df["id_student"].astype(str)
-    )
-
-    student_reg_df["course_id"] = (
-        student_reg_df["code_module"] + "_" + student_reg_df["code_presentation"]
-    )
-    student_reg_df["student_reg_id"] = (
-        student_reg_df["course_id"] + "_" + student_reg_df["id_student"].astype(str)
-    )
-
-    if student_vle_df is not None:
-        student_vle_df["course_id"] = (
-            student_vle_df["code_module"] + "_" + student_vle_df["code_presentation"]
+        raw_student_vle = pd.read_csv(student_vle_path)
+        raw_vle_sreg = (
+            raw_student_vle["code_module"]
+            + "_"
+            + raw_student_vle["code_presentation"]
+            + "_"
+            + raw_student_vle["id_student"].astype(str)
         )
-        student_vle_df["student_reg_id"] = (
-            student_vle_df["course_id"] + "_" + student_vle_df["id_student"].astype(str)
+        raw_student_vle["student_reg_id"] = (
+            raw_vle_sreg.map(student_reg_to_pkey).astype(np.int64)
         )
+        raw_student_vle["id_site"] = (
+            raw_student_vle["id_site"].map(site_raw_to_pkey).astype(np.int64)
+        )
+        raw_student_vle["date"] = _offset_to_datetime(
+            raw_student_vle["code_presentation"], raw_student_vle["date"]
+        )
+        raw_student_vle = raw_student_vle.sort_values("date").reset_index(drop=True)
+        student_vle_df = raw_student_vle[
+            ["id_site", "student_reg_id", "date", "sum_click"]
+        ].copy()
 
-    # 3. Build RelBench Table objects
     table_dict = {
         "courses": Table(
             df=courses_df,
@@ -93,21 +243,27 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         ),
         "studentInfo": Table(
             df=student_info_df,
-            fkey_col_to_pkey_table={"course_id": "courses"},
-            pkey_col="student_reg_id",
+            fkey_col_to_pkey_table={},
+            pkey_col="id_student",
             time_col=None,
         ),
         "studentRegistration": Table(
             df=student_reg_df,
-            fkey_col_to_pkey_table={"student_reg_id": "studentInfo"},
+            fkey_col_to_pkey_table={
+                "id_student": "studentInfo",
+                "course_id": "courses",
+            },
             pkey_col="student_reg_id",
             time_col=None,
         ),
         "studentAssessment": Table(
             df=student_assess_df,
-            fkey_col_to_pkey_table={"id_assessment": "assessments"},
-            pkey_col=None,
-            time_col=None,
+            fkey_col_to_pkey_table={
+                "id_assessment": "assessments",
+                "student_reg_id": "studentRegistration",
+            },
+            pkey_col="student_assessment_id",
+            time_col="date_submitted",
         ),
     }
 
@@ -116,23 +272,21 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
             df=student_vle_df,
             fkey_col_to_pkey_table={
                 "id_site": "vle",
-                "student_reg_id": "studentInfo",
+                "student_reg_id": "studentRegistration",
             },
             pkey_col=None,
-            time_col=None,
+            time_col="date",
         )
 
-    # 4. Construct and return Database
-    db = Database(table_dict=table_dict)
-    return db
+    return Database(table_dict=table_dict)
 
 
 def export_relbench_dataset(
     db: Database,
     out_dir: str | Path,
     dataset_name: str = "oulad",
-    val_timestamp: str = "2014-06-01",
-    test_timestamp: str = "2014-09-01",
+    val_timestamp: str = "2014-02-01",
+    test_timestamp: str = "2014-10-01",
 ) -> None:
     """Exports a RelBench Database to disk with manifest.yaml and parquet files (BYOD format)."""
     out_path = Path(out_dir)
