@@ -45,14 +45,14 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         ["course_id", "code_module", "code_presentation", "module_presentation_length"]
     ].copy()
 
-    # 2. Assessments (PK: id_assessment, FK: course_id -> courses)
+    # 2. Assessments (PK: assessment_id, FK: course_id -> courses)
     raw_assessments = pd.read_csv(raw_path / "assessments.csv")
     raw_assessments["_raw_course_id"] = (
         raw_assessments["code_module"] + "_" + raw_assessments["code_presentation"]
     )
     raw_assessments = raw_assessments.sort_values("id_assessment").reset_index(drop=True)
     raw_assessments["_raw_assessment_id"] = raw_assessments["id_assessment"]
-    raw_assessments["id_assessment"] = np.arange(len(raw_assessments), dtype=np.int64)
+    raw_assessments["assessment_id"] = np.arange(len(raw_assessments), dtype=np.int64)
     raw_assessments["course_id"] = (
         raw_assessments["_raw_course_id"].map(course_to_pkey).astype(np.int64)
     )
@@ -60,7 +60,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         raw_assessments["code_presentation"], raw_assessments["date"]
     )
     assess_raw_to_pkey = dict(
-        zip(raw_assessments["_raw_assessment_id"], raw_assessments["id_assessment"])
+        zip(raw_assessments["_raw_assessment_id"], raw_assessments["assessment_id"])
     )
     assess_to_pres = dict(
         zip(raw_assessments["_raw_assessment_id"], raw_assessments["code_presentation"])
@@ -69,24 +69,24 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         zip(raw_assessments["_raw_assessment_id"], raw_assessments["_raw_course_id"])
     )
     assessments_df = raw_assessments[
-        ["id_assessment", "course_id", "assessment_type", "date", "weight"]
+        ["assessment_id", "course_id", "assessment_type", "date", "weight"]
     ].copy()
 
-    # 3. VLE (PK: id_site, FK: course_id -> courses)
+    # 3. VLE (PK: site_id, FK: course_id -> courses)
     raw_vle = pd.read_csv(raw_path / "vle.csv")
     raw_vle["_raw_course_id"] = (
         raw_vle["code_module"] + "_" + raw_vle["code_presentation"]
     )
     raw_vle = raw_vle.sort_values("id_site").reset_index(drop=True)
     raw_vle["_raw_site_id"] = raw_vle["id_site"]
-    raw_vle["id_site"] = np.arange(len(raw_vle), dtype=np.int64)
+    raw_vle["site_id"] = np.arange(len(raw_vle), dtype=np.int64)
     raw_vle["course_id"] = raw_vle["_raw_course_id"].map(course_to_pkey).astype(np.int64)
-    site_raw_to_pkey = dict(zip(raw_vle["_raw_site_id"], raw_vle["id_site"]))
+    site_raw_to_pkey = dict(zip(raw_vle["_raw_site_id"], raw_vle["site_id"]))
     vle_df = raw_vle[
-        ["id_site", "course_id", "activity_type", "week_from", "week_to"]
+        ["site_id", "course_id", "activity_type", "week_from", "week_to"]
     ].copy()
 
-    # 4. StudentInfo (28,785 unique students, PK: id_student)
+    # 4. StudentInfo (28,785 unique students, PK: student_id)
     raw_student_info = pd.read_csv(raw_path / "studentInfo.csv")
     student_info_df = (
         raw_student_info[
@@ -103,13 +103,13 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         .sort_values("id_student")
         .reset_index(drop=True)
     )
-    student_info_df["_raw_id_student"] = student_info_df["id_student"]
-    student_info_df["id_student"] = np.arange(len(student_info_df), dtype=np.int64)
+    student_info_df["_raw_student_id"] = student_info_df["id_student"]
+    student_info_df["student_id"] = np.arange(len(student_info_df), dtype=np.int64)
     student_to_pkey = dict(
-        zip(student_info_df["_raw_id_student"], student_info_df["id_student"])
+        zip(student_info_df["_raw_student_id"], student_info_df["student_id"])
     )
     student_info_df = student_info_df[
-        ["id_student", "gender", "region", "highest_education", "imd_band", "disability"]
+        ["student_id", "gender", "region", "highest_education", "imd_band", "disability"]
     ].copy()
 
     # 5. StudentRegistration (32,593 enrollments, PK: student_reg_id)
@@ -135,7 +135,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         drop=True
     )
     raw_student_reg["student_reg_id"] = np.arange(len(raw_student_reg), dtype=np.int64)
-    raw_student_reg["id_student"] = (
+    raw_student_reg["student_id"] = (
         raw_student_reg["id_student"].map(student_to_pkey).astype(np.int64)
     )
     raw_student_reg["course_id"] = (
@@ -153,7 +153,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
     student_reg_df = raw_student_reg[
         [
             "student_reg_id",
-            "id_student",
+            "student_id",
             "course_id",
             "age_band",
             "num_of_prev_attempts",
@@ -172,7 +172,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
     raw_student_assess["student_reg_id"] = (
         raw_sa_sreg.map(student_reg_to_pkey).astype(np.int64)
     )
-    raw_student_assess["id_assessment"] = (
+    raw_student_assess["assessment_id"] = (
         raw_student_assess["id_assessment"].map(assess_raw_to_pkey).astype(np.int64)
     )
     raw_student_assess["date_submitted"] = _offset_to_datetime(
@@ -187,7 +187,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
     student_assess_df = raw_student_assess[
         [
             "student_assessment_id",
-            "id_assessment",
+            "assessment_id",
             "student_reg_id",
             "date_submitted",
             "is_banked",
@@ -211,7 +211,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         raw_student_vle["student_reg_id"] = (
             raw_vle_sreg.map(student_reg_to_pkey).astype(np.int64)
         )
-        raw_student_vle["id_site"] = (
+        raw_student_vle["site_id"] = (
             raw_student_vle["id_site"].map(site_raw_to_pkey).astype(np.int64)
         )
         raw_student_vle["date"] = _offset_to_datetime(
@@ -219,7 +219,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         )
         raw_student_vle = raw_student_vle.sort_values("date").reset_index(drop=True)
         student_vle_df = raw_student_vle[
-            ["id_site", "student_reg_id", "date", "sum_click"]
+            ["site_id", "student_reg_id", "date", "sum_click"]
         ].copy()
 
     table_dict = {
@@ -232,25 +232,25 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         "assessments": Table(
             df=assessments_df,
             fkey_col_to_pkey_table={"course_id": "courses"},
-            pkey_col="id_assessment",
+            pkey_col="assessment_id",
             time_col=None,
         ),
         "vle": Table(
             df=vle_df,
             fkey_col_to_pkey_table={"course_id": "courses"},
-            pkey_col="id_site",
+            pkey_col="site_id",
             time_col=None,
         ),
         "studentInfo": Table(
             df=student_info_df,
             fkey_col_to_pkey_table={},
-            pkey_col="id_student",
+            pkey_col="student_id",
             time_col=None,
         ),
         "studentRegistration": Table(
             df=student_reg_df,
             fkey_col_to_pkey_table={
-                "id_student": "studentInfo",
+                "student_id": "studentInfo",
                 "course_id": "courses",
             },
             pkey_col="student_reg_id",
@@ -259,7 +259,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         "studentAssessment": Table(
             df=student_assess_df,
             fkey_col_to_pkey_table={
-                "id_assessment": "assessments",
+                "assessment_id": "assessments",
                 "student_reg_id": "studentRegistration",
             },
             pkey_col="student_assessment_id",
@@ -271,7 +271,7 @@ def load_oulad_relbench(raw_dir: str | Path | None = None) -> Database:
         table_dict["studentVle"] = Table(
             df=student_vle_df,
             fkey_col_to_pkey_table={
-                "id_site": "vle",
+                "site_id": "vle",
                 "student_reg_id": "studentRegistration",
             },
             pkey_col=None,

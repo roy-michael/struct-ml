@@ -48,7 +48,7 @@ def prepare_courses(raw_path: Path) -> tuple[pd.DataFrame, dict[str, int]]:
 def prepare_assessments(
     raw_path: Path, course_to_pkey: dict[str, int]
 ) -> tuple[pd.DataFrame, dict[int, int], dict[int, str], dict[int, str]]:
-    """Build normalized assessments table (PK: id_assessment, FK: course_id -> courses)."""
+    """Build normalized assessments table (PK: assessment_id, FK: course_id -> courses)."""
     print("[2/7] Processing 'assessments'...")
     raw_assessments = pd.read_csv(raw_path / "assessments.csv")
     raw_assessments["_raw_course_id"] = (
@@ -57,7 +57,7 @@ def prepare_assessments(
     raw_assessments = raw_assessments.sort_values("id_assessment").reset_index(drop=True)
 
     raw_assessments["_raw_assessment_id"] = raw_assessments["id_assessment"]
-    raw_assessments["id_assessment"] = np.arange(len(raw_assessments), dtype=np.int64)
+    raw_assessments["assessment_id"] = np.arange(len(raw_assessments), dtype=np.int64)
     raw_assessments["course_id"] = (
         raw_assessments["_raw_course_id"].map(course_to_pkey).astype(np.int64)
     )
@@ -66,7 +66,7 @@ def prepare_assessments(
     )
 
     assess_raw_to_pkey = dict(
-        zip(raw_assessments["_raw_assessment_id"], raw_assessments["id_assessment"])
+        zip(raw_assessments["_raw_assessment_id"], raw_assessments["assessment_id"])
     )
     assess_to_pres = dict(
         zip(raw_assessments["_raw_assessment_id"], raw_assessments["code_presentation"])
@@ -76,7 +76,7 @@ def prepare_assessments(
     )
 
     assessments_df = raw_assessments[
-        ["id_assessment", "course_id", "assessment_type", "date", "weight"]
+        ["assessment_id", "course_id", "assessment_type", "date", "weight"]
     ].copy()
     return assessments_df, assess_raw_to_pkey, assess_to_pres, assess_to_raw_course
 
@@ -84,7 +84,7 @@ def prepare_assessments(
 def prepare_vle(
     raw_path: Path, course_to_pkey: dict[str, int]
 ) -> tuple[pd.DataFrame, dict[int, int]]:
-    """Build normalized vle table (PK: id_site, FK: course_id -> courses)."""
+    """Build normalized vle table (PK: site_id, FK: course_id -> courses)."""
     print("[3/7] Processing 'vle'...")
     raw_vle = pd.read_csv(raw_path / "vle.csv")
     raw_vle["_raw_course_id"] = (
@@ -93,12 +93,12 @@ def prepare_vle(
     raw_vle = raw_vle.sort_values("id_site").reset_index(drop=True)
 
     raw_vle["_raw_site_id"] = raw_vle["id_site"]
-    raw_vle["id_site"] = np.arange(len(raw_vle), dtype=np.int64)
+    raw_vle["site_id"] = np.arange(len(raw_vle), dtype=np.int64)
     raw_vle["course_id"] = raw_vle["_raw_course_id"].map(course_to_pkey).astype(np.int64)
 
-    site_raw_to_pkey = dict(zip(raw_vle["_raw_site_id"], raw_vle["id_site"]))
+    site_raw_to_pkey = dict(zip(raw_vle["_raw_site_id"], raw_vle["site_id"]))
     vle_df = raw_vle[
-        ["id_site", "course_id", "activity_type", "week_from", "week_to"]
+        ["site_id", "course_id", "activity_type", "week_from", "week_to"]
     ].copy()
     return vle_df, site_raw_to_pkey
 
@@ -106,7 +106,7 @@ def prepare_vle(
 def prepare_student_info(
     raw_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[int, int]]:
-    """Build deduplicated studentInfo table (PK: id_student) and return raw df + mapping."""
+    """Build deduplicated studentInfo table (PK: student_id) and return raw df + mapping."""
     print("[4/7] Processing 'studentInfo'...")
     raw_student_info = pd.read_csv(raw_path / "studentInfo.csv")
     student_info_df = (
@@ -124,15 +124,15 @@ def prepare_student_info(
         .sort_values("id_student")
         .reset_index(drop=True)
     )
-    student_info_df["_raw_id_student"] = student_info_df["id_student"]
-    student_info_df["id_student"] = np.arange(len(student_info_df), dtype=np.int64)
+    student_info_df["_raw_student_id"] = student_info_df["id_student"]
+    student_info_df["student_id"] = np.arange(len(student_info_df), dtype=np.int64)
 
     student_to_pkey = dict(
-        zip(student_info_df["_raw_id_student"], student_info_df["id_student"])
+        zip(student_info_df["_raw_student_id"], student_info_df["student_id"])
     )
     student_info_df = student_info_df[
         [
-            "id_student",
+            "student_id",
             "gender",
             "region",
             "highest_education",
@@ -176,7 +176,7 @@ def prepare_student_registration(
     raw_student_reg["student_reg_id"] = np.arange(
         len(raw_student_reg), dtype=np.int64
     )
-    raw_student_reg["id_student"] = (
+    raw_student_reg["student_id"] = (
         raw_student_reg["id_student"].map(student_to_pkey).astype(np.int64)
     )
     raw_student_reg["course_id"] = (
@@ -197,7 +197,7 @@ def prepare_student_registration(
     student_reg_df = raw_student_reg[
         [
             "student_reg_id",
-            "id_student",
+            "student_id",
             "course_id",
             "age_band",
             "num_of_prev_attempts",
@@ -227,7 +227,7 @@ def prepare_student_assessment(
     raw_student_assess["student_reg_id"] = (
         raw_sa_sreg.map(student_reg_to_pkey).astype(np.int64)
     )
-    raw_student_assess["id_assessment"] = (
+    raw_student_assess["assessment_id"] = (
         raw_student_assess["id_assessment"].map(assess_raw_to_pkey).astype(np.int64)
     )
     raw_student_assess["date_submitted"] = offset_to_datetime(
@@ -243,7 +243,7 @@ def prepare_student_assessment(
     return raw_student_assess[
         [
             "student_assessment_id",
-            "id_assessment",
+            "assessment_id",
             "student_reg_id",
             "date_submitted",
             "is_banked",
@@ -270,7 +270,7 @@ def prepare_student_vle(
     raw_student_vle["student_reg_id"] = (
         raw_vle_sreg.map(student_reg_to_pkey).astype(np.int64)
     )
-    raw_student_vle["id_site"] = (
+    raw_student_vle["site_id"] = (
         raw_student_vle["id_site"].map(site_raw_to_pkey).astype(np.int64)
     )
     raw_student_vle["date"] = offset_to_datetime(
@@ -279,7 +279,7 @@ def prepare_student_vle(
     raw_student_vle = raw_student_vle.sort_values("date").reset_index(drop=True)
 
     return raw_student_vle[
-        ["id_site", "student_reg_id", "date", "sum_click"]
+        ["site_id", "student_reg_id", "date", "sum_click"]
     ].copy()
 
 
@@ -307,17 +307,17 @@ def write_dataset(out_path: Path, table_dfs: dict[str, pd.DataFrame]) -> dict:
                 "fkeys": {},
             },
             "assessments": {
-                "pkey": "id_assessment",
+                "pkey": "assessment_id",
                 "time_col": None,
                 "fkeys": {"course_id": "courses"},
             },
             "vle": {
-                "pkey": "id_site",
+                "pkey": "site_id",
                 "time_col": None,
                 "fkeys": {"course_id": "courses"},
             },
             "studentInfo": {
-                "pkey": "id_student",
+                "pkey": "student_id",
                 "time_col": None,
                 "fkeys": {},
             },
@@ -325,7 +325,7 @@ def write_dataset(out_path: Path, table_dfs: dict[str, pd.DataFrame]) -> dict:
                 "pkey": "student_reg_id",
                 "time_col": None,
                 "fkeys": {
-                    "id_student": "studentInfo",
+                    "student_id": "studentInfo",
                     "course_id": "courses",
                 },
             },
@@ -333,7 +333,7 @@ def write_dataset(out_path: Path, table_dfs: dict[str, pd.DataFrame]) -> dict:
                 "pkey": "student_assessment_id",
                 "time_col": "date_submitted",
                 "fkeys": {
-                    "id_assessment": "assessments",
+                    "assessment_id": "assessments",
                     "student_reg_id": "studentRegistration",
                 },
             },
@@ -341,7 +341,7 @@ def write_dataset(out_path: Path, table_dfs: dict[str, pd.DataFrame]) -> dict:
                 "pkey": None,
                 "time_col": "date",
                 "fkeys": {
-                    "id_site": "vle",
+                    "site_id": "vle",
                     "student_reg_id": "studentRegistration",
                 },
             },
