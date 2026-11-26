@@ -325,6 +325,7 @@ if __name__ == "__main__":
         "--raw_dir",
         type=str,
         default=None,
+        required=True,
         help="Path to raw NOAA CSV/Parquet files. If omitted, downloads automatically via kagglehub.",
     )
     parser.add_argument("--out_dir", type=str, default="output", help="Path to output RelBench directory.")
